@@ -1,72 +1,39 @@
 from flask import Flask, jsonify
-import subprocess
-import json
 import requests
-import random
 
 app = Flask(__name__)
 
-# Free Proxy API (Fetches fresh proxies)
-PROXY_API = "https://www.proxy-list.download/api/v1/get?type=http"
-
-def get_free_proxy():
-    """Fetch a free proxy from the online list."""
-    try:
-        response = requests.get(PROXY_API)
-        proxy_list = response.text.strip().split("\r\n")
-
-        # Randomly choose a proxy
-        if proxy_list:
-            return random.choice(proxy_list)
-    except Exception as e:
-        print("Error fetching proxy:", e)
-    return None
+# Set your preferred Invidious instance
+INVIDIOUS_INSTANCE = "https://inv.nadeko.net"
 
 def fetch_live_streams():
+    """Fetch YouTube live streams using Invidious API."""
     search_query = "gta rp on soulcity"
-    yt_search_url = f"https://www.youtube.com/results?search_query={search_query}&sp=EgJAAQ%253D%253D"
-
-    proxy = get_free_proxy()  # Get a free proxy
-    print(f"Using Proxy: {proxy}")
+    search_url = f"{INVIDIOUS_INSTANCE}/api/v1/search?q={search_query}&type=video"
 
     try:
-        command = ["yt-dlp", "-j", yt_search_url]
+        response = requests.get(search_url)
+        data = response.json()
 
-        if proxy:
-            command.insert(1, "--proxy")
-            command.insert(2, f"http://{proxy}")  # Format proxy correctly
-
-        result = subprocess.run(command, capture_output=True, text=True)
-
-        print("Raw yt-dlp Output:", result.stdout)  # Debugging Output
-
-        if not result.stdout.strip():
-            return {"error": "yt-dlp returned no results. YouTube might be blocking requests."}
-
-        output_lines = result.stdout.strip().split("\n")
-        live_streams = []
-
-        for line in output_lines:
-            try:
-                video_data = json.loads(line)
-                if video_data.get("is_live"):
-                    live_streams.append({
-                        "title": video_data.get("title"),
-                        "channel": video_data.get("channel"),
-                        "url": f"https://www.youtube.com/watch?v={video_data.get('id')}",
-                        "thumbnail": video_data.get("thumbnail"),
-                        "viewers": video_data.get("view_count", "Unknown"),
-                    })
-            except json.JSONDecodeError as e:
-                print("JSON Decode Error:", e)
+        # Filter live streams only
+        live_streams = [
+            {
+                "title": video.get("title"),
+                "channel": video.get("author"),
+                "url": f"https://www.youtube.com/watch?v={video.get('videoId')}",
+                "thumbnail": video.get("videoThumbnails")[-1]["url"],
+                "viewers": video.get("viewCount", "Unknown"),
+            }
+            for video in data if video.get("isLive")
+        ]
 
         if not live_streams:
             return {"error": "No live streams found."}
-
+        
         return live_streams
 
     except Exception as e:
-        return {"error": f"yt-dlp error: {str(e)}"}
+        return {"error": f"Invidious API error: {str(e)}"}
 
 @app.route("/api/live-streams")
 def get_live_streams():
